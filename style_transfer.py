@@ -3,6 +3,9 @@ import torch # the core library for building/training machine learning model
 from torchvision import transforms, models # image transformations and provides pre-trained models
 
 # 2. Load and preprocess Images 
+import requests # Library for making HTTP requests
+from PIL import Image # Python Imaging Library (opening, manipulating, saving images)
+from io import BytesIO # Provides a way to handle binary data in memory (image data from web requests)
 
 # 3. Extract content and style features and compute Gram Matrix
 
@@ -53,16 +56,83 @@ class ModelSetup:
 
 
 class ImageProcessor: 
-    def __init__(self):
-        pass
 
+    def __init__(self, max_size = 400, target_size=None):
+        self.max_size = max_size
+        self.target_size = target_size
+        self.transform_pipeline = None
+
+    # If image is url, we download the image with Requests
+    # Then prepare donwloaded image for use in the model (content attribute contains raw binary)
+    # Then convert image into RGB
     def load_raw_image(self, img_path):
-        pass
-    def create_transform_pipeline(self,image):
-        pass
+        if "http" in img_path:
+            # server sends the file as binary data stored in response.content
+            response = requests.get(img_path)
 
+            # BytesIO(response.content): wraps raw bytes into a file-like object in memory
+            # Image.open(): open the byte stream
+            # .convert('RGB'): Converts the image to RGB color mode since image could be in another format like grayscale
+            image = Image.open(BytesIO(response.content)).convert('RGB')
+        else:
+            image = Image.open(img_path).convert('RGB')
+        return image
+
+    
+    def create_transform_pipeline(self, image):
+        if max(image.size) > self.max_size:
+            size = self.max_size
+        else:
+            size = max(image.size)
+        if self.target_size is not None:
+            size = self.target_size
+
+        # Resize: ensure content and style images are the same size
+        # ToTensor: convert PIL image to PyTorch Tensor (C,H,N) with values in [0,1]
+        # Normalize: Adjusts channels using Image Net Mean and STD
+        self.transform_image = transforms.Compose([
+            transforms.Resize(size),
+            transforms.ToTensor(),
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+        ])
+
+    # Batch Dim: Adds extra dimension (1,C,H,W) with .unsqueeze(0)
     def transform_image(self, image):
-        pass
+        if self.tranform_pipeline is None:
+            self.create_transform_pipeline(image)
+
+        # Remove unused alpha (transparency) channel (the :3) and keep RGB
+        # At this point the image 3D tensor: (rgb_channels, height, width) for example (3, 128, 128) - where:
+            # image = torch.tensor([
+            # [[value_1, value_2, ..., value_256], ..., [value_1, ..., value_256]],     # Red channel (128 rows, 256 values each)  Note:[value_1, ..., value_256] is one row even though looks like column
+            # [[value_1, value_2, ..., value_256], ..., [value_1, ..., value_256]],     # Green channel (128 rows, 256 values each)
+            # [[value_1, value_2, ..., value_256], ..., [value_1, ..., value_256]],     # Blue channel (128 rows, 256 values each)
+            # )  
+            # 128 rows in each channel (for the height of img)
+            # 256 values in each row array (for the width of img)
+
+        # Unsqueeze(0) adds a new dimension - the batch dimension - representing no. of images in the batch (will just be 1 in our case but useful feature to have)
+        # Neural networks are designed to process batches of data because it’s faster and more efficient
+        # Now the 4D tensor: (batch size, rgb_channels, height, width)
+        # Example Tensor: (2, 3, 128, 128) - only 1 batch dimension in our code but for understanding lets see 2:
+            # batch_images = [
+            #   [
+            #       Image 1
+            #       [[R1, R2, ..., R256], ..., [R1, ..., R256]],  # Red channel
+            #       [[G1, G2, ..., G256], ..., [G1, ..., G256]],  # Green channel
+            #       [[B1, B2, ..., B256], ..., [B1, ..., B256]]   # Blue channel
+            #   ],
+            #   [
+            #       Image 2
+            #       [[R1, R2, ..., R256], ..., [R1, ..., R256]],  # Red channel
+            #       [[G1, G2, ..., G256], ..., [G1, ..., G256]],  # Green channel
+            #       [[B1, B2, ..., B256], ..., [B1, ..., B256]]   # Blue channel
+            #   ]
+            #]
+        # Example at position (batch=0, channel=1, height=30, width=128) = tensor[0, 1, 30, 128] = a normalized value like 0.456 (Green channel) 
+
+        transformed_image = self.transform_pipeline(image)[:3,:,:].unsqueeze(0)
+        return transformed_image
 
 class ImageVisualizer:
     pass
