@@ -52,6 +52,29 @@ class ModelSetup:
         return self.device
 
 
+class ImageProcessor: 
+    def __init__(self):
+        pass
+
+    def load_raw_image(self, img_path):
+        pass
+    def create_transform_pipeline(self,image):
+        pass
+
+    def transform_image(self, image):
+        pass
+
+class ImageVisualizer:
+    pass
+
+class FeatureExtractor:
+    pass
+
+class FeatureManager:
+    pass
+
+class StyleTransfer:
+    pass
 
 
 # Initialize variables 
