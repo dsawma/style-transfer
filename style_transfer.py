@@ -57,6 +57,7 @@ class ModelSetup:
 
 class ImageProcessor: 
 
+    # initalize with max_size we set transform_pipeline to None(do dont know the image yet)
     def __init__(self, max_size = 400, target_size=None):
         self.max_size = max_size
         self.target_size = target_size
@@ -90,7 +91,7 @@ class ImageProcessor:
         # Resize: ensure content and style images are the same size
         # ToTensor: convert PIL image to PyTorch Tensor (C,H,N) with values in [0,1]
         # Normalize: Adjusts channels using Image Net Mean and STD
-        self.transform_image = transforms.Compose([
+        self.transform_pipeline = transforms.Compose([
             transforms.Resize(size),
             transforms.ToTensor(),
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
@@ -98,7 +99,7 @@ class ImageProcessor:
 
     # Batch Dim: Adds extra dimension (1,C,H,W) with .unsqueeze(0)
     def transform_image(self, image):
-        if self.tranform_pipeline is None:
+        if self.transform_pipeline is None:
             self.create_transform_pipeline(image)
 
         # Remove unused alpha (transparency) channel (the :3) and keep RGB
