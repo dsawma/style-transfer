@@ -12,6 +12,11 @@ from io import BytesIO # Provides a way to handle binary data in memory (image d
 # 4. Run style transfer and optimize generated image
 import torch.optim as optim # module for optimization algorithms like Adam
 
+# 5. Image Visualizer
+import matplotlib.pyplot as plt # Part of Matplotlib(plotting and visualizing data or images)
+import numpy as np # Numerical library (handling arrays, math operations, matrix manipulation)
+
+
 
 class ModelSetup:
 
@@ -136,7 +141,72 @@ class ImageProcessor:
         return transformed_image
 
 class ImageVisualizer:
-    pass
+    def __init__(self, save_path =None):
+        self.save_path = save_path
+    
+    def display_image(self, image_tensor, title= None):
+        image = self.tensor_to_image (image_tensor)
+        plt.imshow(image)
+        if title:
+            plt.title(title)
+        plt.axis('off')
+        plt.show()
+    
+    def display_images_side_by_side(self,images, titles=None):
+        num_images = len(images)
+        fig,axes = plt.subplots(1, num_images, figsize = (20,10))
+        if num_images == 1:
+            axes = [axes]
+        for i, ax in enumerate(axes):
+            image = self.tensor_to_image(images[i])
+            ax.imshow(image)
+            ax.axis('off')
+            if titles and i < len(titles):
+                ax.set_title(titles[i])
+        plt.show()
+
+    def save_image(self, image_tensor, filename):
+        """Save a tensor as a image to the path"""
+        if not self.save_path:
+            raise ValueError("Save path not specified")
+        image = self.tensor_to_image(image_tensor)
+        save_path = f"{self.save_path}/{filename}"
+        plt.imsave(save_path, image)
+        print(f"Image saved to {save_path}")
+
+    def save_images_side_by_side(self, images, filename, titles = None):
+        """Save multiple images side by side as a single image"""
+        if not self.save_path:
+            raise ValueError("Save path not specified")
+        num_images = len(images)
+        fig, axes = plt.subplots(1, num_images, figsize=(20,10))
+        if num_images == 1:
+            axes = [axes]
+        for i, ax in enumerate(axes):
+            image = self.tensor_to_image(images[i])
+            ax.imshow(image)
+            ax.axis('off')
+            if titles and i < len(titles):
+                ax.set_title(titles[i])
+        
+        save_path = f"{self.save_path}/{filename}"
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close(fig)
+        print(f"Side-by-side image saved to {save_path}")
+
+
+    # helper function for un-normalizing a tesnor and converting it to Numpy image for display
+    # Move tensor to CPU, detach gradients, and convert to NumPy( Processing and Visualization must happen on CPU)
+    # Detaching from gradient computations also improves memory usage and speeds up working the image
+    @staticmethod
+    def tensor_to_image(tensor):
+        image = tensor.to("cpu").clone().detech()
+        image = image.numpy().squeeze() # Remove batch dimension 
+        image = image.transpose(1,2,0) # Rearrange to (height, width, channels) - expected by libraries like NumPy and matplotlib
+        image = image * np.array((0.229, 0.224, 0.225)) + np.array((0.485, 0.456, 0.406)) # Un-normalize
+        image = image.clip(0,1) # clip pixel values to [0,1] range 
+        return image
+    
 
 class FeatureExtractor:
     pass
