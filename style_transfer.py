@@ -207,13 +207,101 @@ class ImageVisualizer:
         image = image.clip(0,1) # clip pixel values to [0,1] range 
         return image
     
+# Acts as a controller delegating the computations to the feature extractor class 
+# Responsible for getting the features 
+# Based on Gatys et al. (2016) for style and content extraction 
+# Lower layers for basic features like details and structure(conv1_1 = edges, textures)
+# Deeper layers for higher-level features like patterns adn spatial awareness (conv5_1 = object structure)
 
 class FeatureExtractor:
-    pass
+    def __init__(self, model):
+        self.model = model 
 
+        # the keys are the indices of layers in vgg19.features module(container of layers)
+        # '21' is used to extract content features, rest are used for style features
+        # ex. Layer Name 0: FIrst convolutional layer in block 1 (conv1_1) = Layer name: 0, Layer: Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+        self.layers = {
+            '0':'conv1_1',
+            '5':'conv2_1',
+            '10':'conv3_1',
+            '19': 'conv4_1',
+            '21': 'conv4_2', # content representation 
+            '28' : 'conv5_1'
+        }
+    
+    def get_features(self,image):
+        """
+        Extracts features from layers of the model for a given image
+        :param image: Input tensor of shape(batch_size, normalized_rgb_channels, height, width) 
+        :return: Dictionary of features for the specified layers 
+        """
+
+        features = {} # Dict to store extracted features for specified layers
+
+        # model._modules.item(): dict of model's layers(key: 'name' is layer name(index), value: 'layer' is layer object)
+        # ex. Layer name: 5, Layer: Conv2d(64, 128, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+        # The image tensor is passed through each of the layers of the model, the layer is applied to the image to get feature map 
+        for name, layer in self.model._modules.items():
+            image = layer(image)
+            if name in self.layers:
+                features[self.layers[name]] = image
+        return features
+    
+    @staticmethod
+    def gram_matrix(tensor):
+        """
+        Computes the Gram matrix for style representation 
+        :param tensor: Input tesnor of shape (batch_size, channels, height, width)
+        :return: Gram matrix
+        """
+        b, d, h, w= tensor.size() # batch_size not needed
+        # Reshape tensor to (channels, height * width) 
+        # ex. feature map tensor of (64 * H * W) 64 filters. Will reshape to 64(H * W) 
+        # Where each row corresponds to a filter's activations flattened across all spacial locations
+        tensor = tensor.view(b*d, h*w)
+        gram = torch.mm(tensor, tensor.t())
+        return gram 
+
+# Controller, delegating the computation to the Feature Extraction class
 class FeatureManager:
-    pass
+    def __init__ (self, feature_extractor):
+        """
+        Initialize with a feature extractor
+        :param feature_extractor: An instance of FeatureExtractor for extracting features and Gram matrices
+        """
+        self.feature_extractor = feature_extractor
+        self.content_feature_set = None
+        self.style_feature_set = None
+        self.style_grams = None
 
+    def compute_features(self, content_image, style_image):
+        """
+        Extract features from content and style images with .get_features function 
+        :param content_image: Preprocessed content image tensor
+        :param style_image: Preprocesssed style image tensor
+        """
+        self.content_feature_set = self.feature_extractor.get_features(content_image)
+        self.style_feature_set = self.feature_extractor.get_features(style_image)
+
+        # View the extracted features
+        aggregated = self.style_feature_set['conv1_1'][0].mean(dim=0)  # Average across channels
+        plt.imshow(aggregated.cpu().detach().numpy(), cmap='viridis')
+        plt.show()
+
+
+    
+    def compute_style_gram_matrix(self):
+        self.style_grams = {
+            layer: self.feature_extractor.gram_matix(self.style_feature_set[layer])
+            for layer in self.style_feature_set
+        }
+
+    def get_content_feature_set(self):
+        return self.content_feature_set
+    
+    def get_style_grams(self):
+        return self.style_grams
+    
 class StyleTransfer:
     pass
 
@@ -236,8 +324,8 @@ content = processor.transform_image(content_raw).to(device)
 style = processor.transform_image(style_raw).to(device)
 
 # Display images side by side
-visualizer.save_images_side_by_side()
-visualizer.display_images_side_by_side()
+visualizer.save_images_side_by_side(images=[content, style], filename="side_by_side.png", titles=["Content Image", "Style Image"])
+visualizer.display_images_side_by_side(images=[content, style], titles=["Content Image", "Style Image"])
 
 # Get content and style features and style gram matrix
 feature_manager.compute_features(content_image=content, style_image=style)
