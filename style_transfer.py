@@ -11,6 +11,7 @@ from io import BytesIO # Provides a way to handle binary data in memory (image d
 
 # 4. Run style transfer and optimize generated image
 import torch.optim as optim # module for optimization algorithms like Adam
+import tqdm import tqdm # Progress bar 
 
 # 5. Image Visualizer
 import matplotlib.pyplot as plt # Part of Matplotlib(plotting and visualizing data or images)
@@ -289,7 +290,14 @@ class FeatureManager:
         plt.show()
 
 
-    
+    # Computes the Gram Matrix with .gram_matrix function for the style image for each layer
+    # for each layer in style_feature_set: go through the style image's layer-feature map dict
+    # key = layer name(ex. 'conv1_1') and value = feature map (3D tesnor with (channels, height, width))
+    # style_feature_set[layer] is used to access the feature map 
+    # The number of filters in a layer is the number of feature channels in the output feature map 
+    # Each filter produces one feature channel(2D matrix of shape (height, width))
+    # ex. If a layer has 64 filters, the output feature map will have 64 channels
+    # {layer: ...}: creates a dict (Key = layer_name (e.g. 'conv1_1') , Value = Gram matrix(2D tensor- (feature_channels, feature_channels))
     def compute_style_gram_matrix(self):
         self.style_grams = {
             layer: self.feature_extractor.gram_matix(self.style_feature_set[layer])
@@ -303,7 +311,105 @@ class FeatureManager:
         return self.style_grams
     
 class StyleTransfer:
-    pass
+    def __init__(self, content_feature_set, style_grams, feature_extractor, visualizer, device, style_weights, content_img, style_img, content_weight=1, style_weight=1e6):
+        self.content_feature_set = content_feature_set
+        self.style_grams = style_grams
+        self.feature_extractor = feature_extractor
+        self.visualizer = visualizer
+        self.device = device
+        self.style_weights = style_weights
+        self.content_img = content_img
+        self.style_img = style_img
+        self.content_weight = content_weight
+        self.style_weight = style_weight
+        self.generated_image = None
+
+    # Take original image and adjust pixels that aligns best with content and style
+    # Treate entire image tensor as a trainable object where each individual pixel value acts as parameter that PyTorch 
+    # will update to minimize the content and style losses
+    def set_generated_image(self, content_image):
+        """
+        Initialize the generated image as a copy of the content image
+        :param content_image: Preprocessed content image tensor
+        """
+        self.generated_image = content_image.clone().requires_grad_(True).to(self.device)
+
+
+    # Returns both content and style loss
+    # 1.Content loss:
+    # Compares feature maps of generated image to the content image feature maps we extracted (compare current state of our model's output to the target)
+    # We do this on conv4_2 since its the representation of the features we want to return without too much influence from low-level
+    # Then Calculate the Mean Square Error
+    # 2. Style loss:
+    # Initialize scalar(represents generated img deviation from style img) style loss at 0 to 
+    # We go through all pre-selected layers, we extracted the feature maps
+    # Get feature map of generated target image for current layer and compare its Gram Matrix
+    # (The Gram matrix encodes correlations between all pairs of feature maps)
+    def compute_losses(self, target_feature_set):
+        """
+        Compute content and style losses
+        :param target_feature_set: Extracted features of the generated image
+        :return: Tuple (content_loss, style_loss)
+        """
+        content_loss = torch.mean((target_feature_set['conv4_2'] - self.content_feature_set['conv4_2']) ** 2)
+        style_loss = 0
+
+        # Style loss:
+        # 1. Get the feature_maps of generated target img for current layerand compute its Gram matrix
+        # 2. Retrieve precomputed Gram matrix of style imaege for the same layer
+        # 3. Calculate the MSE loss between the target Gram matrix and the style image Gram matrix
+        # 4. Weight the loss using the predefined style weigths for the layer 
+        # 5. Normalize the lsos by the total number of elements in the feature map (ensures loss for layer is independent of feature map size)
+        # 6. Accumulate the style loss across all specified layers
+
+        for layer in self.style_weights:
+            target_feature = target_feature_set[layer]
+            target_gram = self.feature_extractor.gram_matrix(target_feature)
+            _, d, h, w = target_feature.shape
+
+            style_gram = self.style_grams[layer]
+            layer_style_loss = torch.mean((target_gram - style_gram) ** 2)
+            weighted_layer_style_loss = self.style_weights[layer] * layer_style_loss
+            style_loss += weighted_layer_style_loss / (d * h * w)
+        return content_loss, style_loss
+
+    def optimise(self, steps=5000, save_every=250):
+        """
+        Optimize the generated image to minimize content and style losses
+        :param steps: Number of optimization steps
+        :param save_every: Interva; for displaying intermediate results
+        :return: Final stylized image tensor
+        """
+        optimizer = optim.Adam([self.generated_image], lr=0.003)
+        with tqdm(total=steps, desc="Optimizing Style Transfer") as pbar:
+            for step_number in range(1, steps + 1):
+
+                # Extract features from the generated image
+                target_feature_set = self.feature_extractor.get_features(self.generated_image)
+
+                # Compute aggregate loss for both content and style
+                content_loss, style_loss = self.compute_losses(target_feature_set)
+
+                total_loss = self.content_weight * content_loss + self.style_weight * style_loss
+
+                optimizer.zero_grad()
+                total_loss.backward()
+                optimizer.step()
+
+                pbar.set_postfix({'Total Loss': f"{total_loss.item():.4f}"}, refresh=True)
+                pbar.update(1)
+
+                if step_number % save_every ==0:
+                    print(f"Step {step_number}, Total Loss: {total_loss.item():.4f}")
+                    self.visualizer.save_image(self.generated_image, filename= f"step_{step_number}.png")
+                    self.visualizer.display_image(self.generated_image, title=f"Step {step_number}")
+
+            self.visualizer.save_images_side_by_side(
+                images=[self.content_img, self.style_img, self.generated_image],
+                filename = "final_side_by_side.png",
+                titles = ["Content Image", "Style Image", "Stylized Image"]
+            )
+        return self.generated_image
 
 
 # Initialize variables 
